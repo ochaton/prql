@@ -175,6 +175,8 @@ end
 
 assert(AggrExpr:implements(Expr))
 
+-------------------------------------------------------------
+
 ---@class Accumulator:Base
 ---@field state tuple_type
 local Accumulator = base:extend('Accumulator', {'accumulate'})
@@ -234,6 +236,28 @@ function Maximizer:accumulate(value)
 	end
 end
 
+---@class AvgAccumulator:Accumulator
+local AvgAccumulator = Accumulator:extend('AvgAccumulator')
+
+function AvgAccumulator:_init(initial)
+	self.sum = Summator:new(initial)
+	self.count = Counter:new()
+end
+
+function AvgAccumulator:accumulate(value)
+	self.sum:accumulate(value)
+	self.count:accumulate(value)
+end
+
+function AvgAccumulator:final()
+	if self.count:final() == 0 then
+		return nil
+	end
+	return self.sum:final() / self.count:final()
+end
+
+-------------------------------------------------------------
+
 ---@class SumExpr:AggrExpr
 local SumExpr = AggrExpr:extend('SumExpr')
 
@@ -274,6 +298,8 @@ function MinExpr:__tostring()
 	return ('Min(%s)'):format(tostring(self.expr))
 end
 
+assert(MinExpr:implements(AggrExpr))
+
 ---@class MaxExpr:AggrExpr
 local MaxExpr = AggrExpr:extend('MaxExpr')
 function MaxExpr:_init(expr)
@@ -285,25 +311,7 @@ function MaxExpr:__tostring()
 	return ('Max(%s)'):format(tostring(self.expr))
 end
 
----@class AvgAccumulator:Accumulator
-local AvgAccumulator = Accumulator:extend('AvgAccumulator')
-
-function AvgAccumulator:_init(initial)
-	self.sum = Summator:new(initial)
-	self.count = Counter:new()
-end
-
-function AvgAccumulator:accumulate(value)
-	self.sum:accumulate(value)
-	self.count:accumulate(value)
-end
-
-function AvgAccumulator:final()
-	if self.count:final() == 0 then
-		return nil
-	end
-	return self.sum:final() / self.count:final()
-end
+assert(MaxExpr:implements(AggrExpr))
 
 ---@class AvgExpr:AggrExpr
 local AvgExpr = AggrExpr:extend('AvgExpr')
@@ -313,9 +321,38 @@ function AvgExpr:_init(expr)
 	AggrExpr._init(self, expr)
 end
 
-function AvgAccumulator:__tostring()
-	return ('AvgAccumulator(%s, %s)'):format(tostring(self.sum), tostring(self.count))
+function AvgExpr:__tostring()
+	return ('Avg(%s)'):format(tostring(self.expr))
 end
+
+assert(AvgExpr:implements(AggrExpr))
+
+-------------------------------------------------------------
+
+---@class PhySortExpr:Expr
+---@field expr Expr sort expression
+---@field order 'asc'|'desc' sort order
+local PhySortExpr = Expr:extend('PhySortExpr')
+
+---@param expr Expr
+---@param order 'asc'|'desc'
+function PhySortExpr:_init(expr, order)
+	assert(Expr.as(expr, Expr), "expr must be an Expr")
+	assert(order == 'asc' or order == 'desc', "order must be 'asc' or 'desc'")
+	self.expr = expr
+	self.order = order
+end
+
+---@param input box.tuple<any,any>
+function PhySortExpr:eval(input)
+	return self.expr:eval(input)
+end
+
+function PhySortExpr:__tostring()
+	return ('%s %s'):format(tostring(self.expr), self.order)
+end
+
+assert(PhySortExpr:implements(Expr))
 
 return {
 	Expr = Expr,
@@ -336,6 +373,8 @@ return {
 	PhyLeExpr = PhyLeExpr,
 	PhyGtExpr = PhyGtExpr,
 	PhyGeExpr = PhyGeExpr,
+
+	PhySortExpr = PhySortExpr,
 
 	AggrExpr = AggrExpr,
 	SumExpr = SumExpr,

@@ -30,9 +30,33 @@ local function table_copy_only(only, n)
 	end
 end
 
+---@param o any
+local function stringify(o)
+	local isa = type(o)
+	if isa ~= 'table' or o.__tostring then
+		return tostring(o)
+	end
+	if #o > 0 then -- array
+		local str = table_new(#o, 0)
+		for i = 1, #o do
+			table.insert(str, stringify(o[i]))
+		end
+		return '[' .. table.concat(str, ', ') .. ']'
+	elseif not next(o) then -- empty
+		return '[]'
+	else -- kv
+		local str = {}
+		for k, v in pairs(o) do
+			table.insert(str, ('%s=%s'):format(k, stringify(v)))
+		end
+		return '{' .. table.concat(str, ', ') .. '}'
+	end
+end
+
 
 return {
 	table_new = table_new,
 	table_copy = table_copy,
 	table_copy_only = table_copy_only,
+	stringify = stringify,
 }

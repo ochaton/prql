@@ -1,12 +1,7 @@
 local base = require 'base'
 
-local exprs = require 'exprs'
-local project = require 'projection'
-local filter = require 'filter'
-local aggregate = require 'aggregate'
-local limit = require 'limit'
-local sort = require 'sort'
-local scan = require 'scan'
+local plans = require 'plan'
+local lexpr = require 'lexpr'
 
 ---@class QL:Base
 ---@field _aliases table<string, boolean>
@@ -43,12 +38,12 @@ end
 function ql.from(path, source)
 	local plan
 	if type(path) == 'table' then
-		local alias
-		alias, path = next(path)
+		local _
+		_, path = next(path)
 
-		plan = scan:new(path, source)
+		plan = plans.Scan:new(path, source)
 	elseif type(path) == 'string' then
-		plan = scan:new(path, source)
+		plan = plans.Scan:new(path, source)
 	else
 		error("path must be a string or a table")
 	end
@@ -69,10 +64,10 @@ function ql:select(select)
 		else
 			name = alias
 		end
-		table.insert(projection, exprs.Alias:new(expr, name))
+		table.insert(projection, lexpr.Alias:new(expr, name))
 	end
 
-	local plan = project:new(self.plan, projection)
+	local plan = plans.Projection:new(self.plan, projection)
 	return self:fork(plan)
 end
 
@@ -90,20 +85,20 @@ function ql:derive(derive)
 		else
 			name = alias
 		end
-		table.insert(add_projection, exprs.Alias:new(expr, name))
+		table.insert(add_projection, lexpr.Alias:new(expr, name))
 	end
 
 	for _, f in pairs(self.plan:schema().format) do
-		table.insert(add_projection, exprs.f(f.name))
+		table.insert(add_projection, lexpr.f(f.name))
 	end
 
-	return self:fork(project:new(self.plan, add_projection))
+	return self:fork(plans.Projection:new(self.plan, add_projection))
 end
 
 ---@param expr lexpr
 ---@return QL
 function ql:filter(expr)
-	return self:fork(filter:new(self.plan, expr))
+	return self:fork(plans.Filter:new(self.plan, expr))
 end
 
 
@@ -120,10 +115,10 @@ function ql:aggregate(aggr)
 		else
 			name = alias
 		end
-		table.insert(aggregates, exprs.Alias:new(expr, name))
+		table.insert(aggregates, lexpr.Alias:new(expr, name))
 	end
 
-	return self:fork(aggregate:new(self.plan, self.group_by or {}, aggregates))
+	return self:fork(plans.Aggregate:new(self.plan, self.group_by or {}, aggregates))
 end
 
 ---@param params {[1]: lexpr[], [2]: fun(QL):QL} parameters
@@ -151,13 +146,13 @@ function ql:take(l, r)
 	assert(lim == nil or lim >= 0, "limit must be >= 0")
 	assert(off == nil or off >= 0, "offset must be >= 0")
 
-	return self:fork(limit:new(self.plan, lim, off))
+	return self:fork(plans.Limit:new(self.plan, lim, off))
 end
 
 ---@param expr lexpr[]
 ---@return QL
 function ql:sort(expr)
-	return self:fork(sort:new(self.plan, expr))
+	return self:fork(plans.Sort:new(self.plan, expr))
 end
 
 return ql

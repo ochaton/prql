@@ -1,6 +1,8 @@
 local phys = require 'phys'
 local fun = require 'fun'
 local msgpack = require 'msgpack'
+local u = require 'utils'
+local stringify = u.stringify
 
 ---@class ScanExec:PhysicalPlan
 ---@field ds DataSource data source
@@ -103,7 +105,8 @@ end
 ---@return fun.iterator<box.tuple<any,any>,nil>
 function FilterExec:execute()
 	return self.input:execute():filter(function(record)
-		return self.expr:eval(record)
+		local x = self.expr:eval(record)
+		return x ~= nil and x ~= false
 	end)
 end
 
@@ -186,9 +189,101 @@ end
 
 assert(HashAggregateExec:implements(phys))
 
+-------------------------------------------------------------
+
+---@class SortExec:PhysicalPlan
+local SortExec = phys:extend('SortExec')
+
+---@param input PhysicalPlan
+---@param order_by PhySortExpr[] list of order by expressions
+function SortExec:_init(input, order_by)
+	self.input = input
+	self.order_by = order_by
+
+	local n = #self.order_by
+
+	---@param a box.tuple<any,any>
+	---@param b box.tuple<any,any>
+	---@return boolean
+	self.comparator = function(a, b)
+		for i = 1, n do
+			local expr = assert(self.order_by[i])
+			local asc = expr.order == "asc"
+			local va, vb = expr:eval(a), expr:eval(b)
+			if va < vb then
+				return asc
+			elseif va > vb then
+				return not asc
+			end
+		end
+		-- if both tuples are equal, return true
+		return true
+	end
+end
+
+function SortExec:__tostring() return ('SortExec: %s'):format(stringify(self.order_by), ", ") end
+function SortExec:children() return { self.input } end
+function SortExec:schema() return self.input:schema() end
+
+---@return fun.iterator<box.tuple<any,any>,nil>
+function SortExec:execute()
+	local collect = self.input:execute():totable()
+	table.sort(collect, self.comparator)
+
+	return fun.iter(collect)
+end
+
+assert(SortExec:implements(phys))
+-------------------------------------------------------------
+
+---@class LimitExec:PhysicalPlan
+---@field input PhysicalPlan input plan
+---@field offset integer offset
+---@field limit integer? limit
+local LimitExec = phys:extend('LimitExec')
+
+function LimitExec:_init(input, offset, limit)
+	self.input = input
+	self.offset = offset
+	self.limit = limit
+end
+
+function LimitExec:__tostring()
+	if self.offset > 0 then
+		if self.limit then
+			return ("LimitExec: %d, Offset: %d"):format(self.limit, self.offset)
+		else
+			return ("Offset: %d"):format(self.offset)
+		end
+	elseif self.limit then
+		return ("LimitExec: %d"):format(self.limit)
+	end
+end
+
+function LimitExec:children() return { self.input } end
+
+function LimitExec:schema() return self.input:schema() end
+
+---@return fun.iterator<box.tuple<any,any>,nil>
+function LimitExec:execute()
+	local iterator = self.input:execute()
+	if self.offset > 0 then
+		iterator = iterator:drop_n(self.offset)
+	end
+	if self.limit then
+		iterator = iterator:take_n(self.limit)
+	end
+	return iterator
+end
+
+assert(LimitExec:implements(phys))
+-------------------------------------------------------------
+
 return {
 	ScanExec = ScanExec,
 	ProjectionExec = ProjectionExec,
 	FilterExec = FilterExec,
 	HashAggregateExec = HashAggregateExec,
+	LimitExec = LimitExec,
+	SortExec = SortExec,
 }

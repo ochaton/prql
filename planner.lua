@@ -37,8 +37,8 @@ local function to_physical_expr(lexpr, logical_plan)
 		return to_physical_expr(expr.expr, logical_plan)
 	elseif lexpr:as('BinaryExpr') then
 		---@cast lexpr BinaryExpr
-		local left = to_physical_expr(lexpr.l, logical_plan)
-		local right = to_physical_expr(lexpr.r, logical_plan)
+		local left = to_physical_expr(lexpr.left, logical_plan)
+		local right = to_physical_expr(lexpr.right, logical_plan)
 		local phyexpr = op2expr[lexpr.op]
 		if phyexpr == nil then
 			error('unknown operator: '..lexpr.op)
@@ -59,6 +59,9 @@ local function to_physical_expr(lexpr, logical_plan)
 		else
 			error('unknown aggregate function: '..lexpr.name)
 		end
+	elseif lexpr:as('Alias') then
+		---@cast lexpr Alias
+		return to_physical_expr(lexpr.expr, logical_plan)
 	end
 
 	error('unknown expression type: '..tostring(lexpr))
@@ -98,6 +101,24 @@ local function to_physical_plan(logical_plan)
 			table.insert(aggregates, to_physical_expr(lexpr, logical_plan.input))
 		end
 		return exec.HashAggregateExec:new(input, groupby, aggregates, logical_plan:schema())
+	elseif logical_plan:as('Sort') then
+		---@cast logical_plan Sort
+		local input = to_physical_plan(logical_plan.input)
+		local order_by = {}
+		for _, lexpr in ipairs(logical_plan.order) do
+			local dir = 'asc'
+			if lexpr:as('Unm') then -- unary minus in order just means descending
+				---@cast lexpr Unm
+				dir = 'desc'
+				lexpr = lexpr.expr
+			end
+			table.insert(order_by, expr.PhySortExpr:new(to_physical_expr(lexpr, logical_plan.input), dir))
+		end
+		return exec.SortExec:new(input, order_by)
+	elseif logical_plan:as('Limit') then
+		---@cast logical_plan Limit
+		local input = to_physical_plan(logical_plan.input)
+		return exec.LimitExec:new(input, logical_plan.offset, logical_plan.limit)
 	end
 	error('unknown logical plan type: '..tostring(logical_plan))
 end
